@@ -507,7 +507,9 @@ async def gatherPlayers(message, caller, callOuts = []):
             if user not in players and user.id != message.author.id:
                 players.append(user)
             print('{0} has reacted with {1.emoji}!'.format(user, react))
-    return players
+    
+    # Adding a random shuffling of players
+    return random.shuffle(players)
 
 def updatePlayerCallOuts(player, change):
     '''
