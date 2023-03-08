@@ -509,7 +509,8 @@ async def gatherPlayers(message, caller, callOuts = []):
             print('{0} has reacted with {1.emoji}!'.format(user, react))
     
     # Adding a random shuffling of players
-    return random.shuffle(players)
+    random.shuffle(players)
+    return players
 
 def updatePlayerCallOuts(player, change):
     '''
@@ -570,7 +571,7 @@ async def gatherCallOuts(message):
             Returns:
                     players (list): A list of each Discord User that had reacted to the given message
     '''
-    return [x for x in message.mentions if x.bot == False]
+    return [x for x in message.mentions if x.bot == False] 
 
 # Gets list of all emojis owned by server and returns one chosen at random
 async def getRandomEmoji(message):
