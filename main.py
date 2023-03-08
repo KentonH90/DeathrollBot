@@ -439,6 +439,7 @@ def getLeaderboard():
 
     return embedVar
 
+# TODO: Figure this out...
 def getWager(message):
     pass
 
@@ -510,7 +511,7 @@ async def gatherPlayers(message, caller, callOuts = []):
 
 def updatePlayerCallOuts(player, change):
     '''
-    Return player's current funds for forcing deathrolls
+    Update the given player's allow call outs. Stored value is decremented by change
 
             Parameters:
                     player (User): Discord user to adjust force add count of
@@ -613,10 +614,12 @@ async def on_message(message):
             else:
                 stats = pullStats(message)
             await message.channel.send(embed=stats)
+
         # If titles is called for, display an embed that shows all possible titles and their descriptions
         elif "titles" in message.content.lower():
             titles = displayTitles()
             await message.channel.send(embed=titles)
+
         # If wager is called for, allow players to place bets on the round
         # TODO: Complete this
         elif "wager" in message.content.lower():
@@ -624,6 +627,7 @@ async def on_message(message):
             #wager, wasRandom = getParams(message)
             #await message.channel.send(embed=titles)
         # If leaderboard is called for, create and show the leaderboard embed
+        
         elif "leaderboard" in message.content.lower():
             leaderboard = getLeaderboard()
             await message.channel.send(embed=leaderboard)
@@ -665,14 +669,9 @@ async def on_message(message):
                         tracker = setupStatTracking(players, limit, caller)
                         curPlayerInd = 0
                         nRounds = 0
-                        #global gameOn # Access the global variable
                         while(gameOn):
-                            #print("WHILE ACTIVE")
                             curPlayer = players[curPlayerInd]
                             oldLim = limit
-                            #if curPlayer.name == "Ash" and limit < 100:
-                                #limit = AshLikelyLoses(limit, curPlayer)
-                            #else:
                             limit = roll(limit)
                             nRounds += 1
                             isCrit = False
@@ -707,9 +706,7 @@ async def on_message(message):
                                 updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit)
                                 curPlayerInd = (curPlayerInd + 1)%len(players)
                                 time.sleep(3)
-                        #print("WHILE ENDED")
                         updateTrackerFile(tracker, players)
-                        #gameOn = True # Reset so game can be played again (maybe)
                     else:
                         await message.channel.send("Starting a game requires more than 1 player!")
                         gameOn = False
