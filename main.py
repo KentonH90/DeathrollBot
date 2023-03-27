@@ -23,6 +23,7 @@ def setupStatTracking(players, startLimit, caller):
             Parameters:
                     players (list): A list that contains all Discord Users involved in this deathroll game
                     startLimit (int): The value the deathroll game started at
+                    caller (Discord User): The Discord User who started the deathroll
 
             Returns:
                     data (dict): A dictionary set up to store the game's starting value as well as
@@ -132,7 +133,7 @@ def updateTrackerFile(tracker, players):
             most_stalls = 0
             most_games = 0
             most_sds = 0
-            # TODO: Is there a better way to do this?
+            # TODO: Do this in a better way...
             for entry in data["player_stats"]:
                 try:
                     ratio = data["player_stats"][entry]["wins"] / (data["player_stats"][entry]["wins"] + data["player_stats"][entry]["losses"])
@@ -179,7 +180,8 @@ def updateTrackerFile(tracker, players):
             data["general"]["top_cutter"] = most_cuts
 
             # Now we can assign titles
-            # TODO: The general way to update these are the same, see if you can wrap it up into a loop instead of a manual thing...
+            # TODO: The general way to update these are the same, see if you can wrap it up into a loop / function call instead of a manual thing...
+            # NOTE: Did this separately since we used to care about general stats. But since those are hidden now, maybe we can do this in a better way
             for entry in data["player_stats"]:
                 wins = data["player_stats"][entry]["wins"]
                 losses = data["player_stats"][entry]["losses"]
@@ -392,7 +394,7 @@ def displayTitles():
     #embedVar.add_field(name= "Lonely: ", value = "Start the most deathroll games and have no one join", inline=False)
     embedVar.add_field(name= "Loss Averter: ", value = "Have the highest win / loss ratio", inline=False)
     #embedVar.add_field(name= "Party Starter: ", value = "Start the most deathroll games", inline=False)
-    #embedVar.add_field(name= "Peskiest: ", value = "Start the most deathroll games", inline=False)
+    #embedVar.add_field(name= "Peskiest: ", value = "Have the highest stall value", inline=False)
     #embedVar.add_field(name= "Popular: ", value = "Get the most people to join a deathroll", inline=False)
     embedVar.add_field(name= "Speed Runner: ", value = "Have the highest cut to loss", inline=False)
     embedVar.add_field(name= "Sprinter: ", value = "Have the highest average cuts per game", inline=False)
@@ -637,8 +639,8 @@ async def on_message(message):
             pass
             #wager, wasRandom = getParams(message)
             #await message.channel.send(embed=titles)
+
         # If leaderboard is called for, create and show the leaderboard embed
-        
         elif "leaderboard" in message.content.lower():
             leaderboard = getLeaderboard()
             await message.channel.send(embed=leaderboard)
