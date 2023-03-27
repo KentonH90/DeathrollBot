@@ -83,7 +83,7 @@ def updateTrackerFile(tracker, players):
                 # TODO: Add new stats
                 if player.name not in data["player_stats"].keys():
                     data["player_stats"][player.name] = {"wins": 0, "losses": 0, "self_destructs": 0, "biggest_cut": 0, "cutToL" : 0,
-                     "most_cuts" : 0, "most_crit_cuts" : 0, "cuts" : 0, "crit_cuts" : 0, "stalls" : 0, "spooky_shillings": 0, "accolades": []}
+                     "most_cuts" : 0, "most_crit_cuts" : 0, "cuts" : 0, "crit_cuts" : 0, "stalls" : 0, "spooky_shillings": 2, "accolades": []}
 
                 # --- CUT INFO --- #
                 if tracker[player.name]["biggest_cut"] > data["general"]["biggest_cut"]:
@@ -104,18 +104,22 @@ def updateTrackerFile(tracker, players):
                     data["player_stats"][player.name]["losses"] += 1
                     if data["player_stats"][player.name]["cutToL"] < tracker["cutToL"]:
                         data["player_stats"][player.name]["cutToL"] = tracker["cutToL"]
+
+                    # Every 5 losses, gain a force add point if you have less than 2
+                    if data["player_stats"][player.name]["losses"] % 5 == 0 and data["player_stats"][player.name]["spooky_shillings"] < 2:
+                        data["player_stats"][player.name]["spooky_shillings"] += 1
+
                     # If we started the game and lost...
                     if player.name == tracker["roll_starter"]:
                         # Increase player's self destruct value
                         data["player_stats"][player.name]["self_destructs"] += 1
-                        # Every 5 losses, gain a force add point
-                        if data["player_stats"][player.name]["losses"] % 5 == 0:
-                            data["player_stats"][player.name]["spooky_shillings"] += 1
                 else:
                     data["player_stats"][player.name]["wins"] += 1
-                    # If we won and didn't initiate the deathroll, gain a force add point, up to a max of 5
-                    if player.name != tracker["roll_starter"] and data["player_stats"][player.name]["spooky_shillings"] < 5:
-                        data["player_stats"][player.name]["spooky_shillings"] += 1
+                    # If we won and didn't initiate the deathroll, gain a force add point, up to a max of 2
+                    # TODO: Make this only trigger when the player was force added...
+                    # NOTE: Disabling until above is done
+                    if player.name != tracker["roll_starter"] and data["player_stats"][player.name]["spooky_shillings"] < 2:
+                        data["player_stats"][player.name]["spooky_shillings"] += 0
 
             # Now we need to go through every entry in our player stats to update some general stuff
             highest_wl = 0
@@ -335,7 +339,6 @@ def pullStats(message, player = None):
         player = caller.name
     elif isinstance(player, list):
         # This is how we're gonna deal with instances where a person's name is coming as a list due to spaces
-        # TODO: Better way to do this?
         player = " ".join(player)
 
     # Want to try and open a file if it's already there
@@ -353,13 +356,14 @@ def pullStats(message, player = None):
             embedVar = discord.Embed(color=0x0B5394, title = player)
         else:
             embedVar = discord.Embed(color=0xE74C3C , title = player)
-        #embedVar.set_author(name = caller.name)
+        #embedVar.set_author(name = player)
         #embedVar.set_thumbnail(url= caller.default_avatar)
         #embedVar.add_field(name= "\u200B", value = "\u200B", inline=False)
         #embedVar.add_field(name= "\u200B", value = "\u200B", inline=False)
         embedVar.add_field(name= "Wins: ", value = wins, inline=True)
         embedVar.add_field(name= "Losses: ", value = losses, inline=True)
         embedVar.add_field(name= "Win / Loss Ratio: ", value = str(ratio) + "%", inline=True)
+        embedVar.add_field(name= "Force Adds Remaining: ", value = data["player_stats"][player]["spooky_shillings"], inline=False)
         embedVar.add_field(name= "Biggest Cut to Loss: ", value = data["player_stats"][player]["cutToL"], inline=False)
         embedVar.add_field(name= "Most Cuts in a Game: ", value = data["player_stats"][player]["most_cuts"], inline=True)
         embedVar.add_field(name= "Total Cuts: ", value = data["player_stats"][player]["cuts"], inline=True)
@@ -372,8 +376,9 @@ def pullStats(message, player = None):
 
     # If no stat tracking file exists, make one
     # TODO: Make the file...
-    except:
+    except Exception as e:
         print("Error pulling stats!")
+        print(e)
 
 def displayTitles():
     # TODO: Maybe consider storing these in a dictionary somewhere so we can easily iterate through them
@@ -469,6 +474,9 @@ def getParams(message):
         startDelay = int(content[2])
         if startDelay > 30:
             startDelay = 30
+        # Prevent trying to start the game too fast!
+        elif startDelay < 10:
+            startDelay = 10
 
 
     # Check if string "random" was sent. If so, we'll just randomly generate and return a
