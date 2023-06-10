@@ -539,7 +539,7 @@ def updatePlayerCallOuts(player, change):
         data["player_stats"][player.name]["spooky_shillings"] -= change
     
     except:
-        print("Error opening stats file!")
+        print("Error opening stats file in callouts p1!")
     
     try:
         #Now write to file
@@ -548,7 +548,7 @@ def updatePlayerCallOuts(player, change):
             f.write(json_string)
 
     except:
-        print("Error opening stats file!")
+        print("Error opening stats file in callouts p2!")
 
 def playerCallOutCount(caller):
     '''
