@@ -8,7 +8,12 @@ import sys
 
 from discord import channel
 
-client = discord.Client()
+# Now required as of 2.0
+intents = discord.Intents.all()
+intents.members = True
+
+client = discord.Client(intents=intents)
+
 
 with open('botKey.txt') as f:
     botKey = f.readline()
@@ -32,6 +37,7 @@ def setupStatTracking(players, startLimit, caller):
     '''
     data = {"highest_start": startLimit}
     data["roll_starter"] = caller.name
+    data["player_count"] = len(players)
     # This is just going to store each player's biggest cuts this game
     for player in players:
         data[player.name] = {}
@@ -39,6 +45,7 @@ def setupStatTracking(players, startLimit, caller):
         data[player.name]["cuts"] = 0
         data[player.name]["crit_cuts"] = 0
         data[player.name]["stalls"] = 0
+        data[player.name]["biggest_stall"] = 0
 
     return data
 
@@ -58,6 +65,9 @@ def updateTracker(tracker, curPlayer, oldLim, newLim, nRounds, isCut, isCrit, fi
         tracker[curPlayer.name]["crit_cuts"] += 1
     if cut == 0:
         tracker[curPlayer.name]["stalls"] += 1
+        # Since we're counting down, there's probably a better way to do this (ie a later roll will never be higher than any previous roll that triggers this)
+        if oldLim > tracker[curPlayer.name]["biggest_stall"]:
+            tracker[curPlayer.name]["biggest_stall"] = oldLim
     # Game is over. Record who lost and how many rounds we went
     if fin:
         tracker["nRounds"] = nRounds
@@ -84,7 +94,9 @@ def updateTrackerFile(tracker, players):
                 # TODO: Add new stats
                 if player.name not in data["player_stats"].keys():
                     data["player_stats"][player.name] = {"wins": 0, "losses": 0, "self_destructs": 0, "biggest_cut": 0, "cutToL" : 0,
-                     "most_cuts" : 0, "most_crit_cuts" : 0, "cuts" : 0, "crit_cuts" : 0, "stalls" : 0, "spooky_shillings": 2, "accolades": []}
+                     "most_cuts" : 0, "most_crit_cuts" : 0, "cuts" : 0, "crit_cuts" : 0, "stalls" : 0, "spooky_shillings": 2, "consecutive_wins": 0, 
+                      "biggest_stall": 0, "most_gathered_players": 0, "games_started": 0,  "accolades": []}
+        
 
                 # --- CUT INFO --- #
                 if tracker[player.name]["biggest_cut"] > data["general"]["biggest_cut"]:
@@ -99,9 +111,22 @@ def updateTrackerFile(tracker, players):
                 data["player_stats"][player.name]["stalls"] += tracker[player.name]["stalls"]
 
                 # --- BASIC INFO --- #
+                # Log any updates to our biggest cut / stall stats
                 if tracker[player.name]["biggest_cut"] > data["player_stats"][player.name]["biggest_cut"]:
                     data["player_stats"][player.name]["biggest_cut"] = tracker[player.name]["biggest_cut"]
+                if tracker[player.name]["biggest_stall"] > data["player_stats"][player.name]["biggest_stall"]:
+                    data["player_stats"][player.name]["biggest_stall"] = tracker[player.name]["biggest_stall"]
+                # Update our highest players gathered if we started the round
+                if player.name == tracker["roll_starter"]:
+                    if tracker["player_count"] > data["player_stats"][player.name]["most_gathered_players"]:
+                        data["player_stats"][player.name]["most_gathered_players"] = tracker["player_count"]
+
+                    data["player_stats"][player.name]["games_started"] += 1
+
                 if player.name == tracker["loser"]:
+                    # Update our consecutive wins value
+                    data["player_stats"][player.name]["consecutive_wins"] = 0
+
                     data["player_stats"][player.name]["losses"] += 1
                     if data["player_stats"][player.name]["cutToL"] < tracker["cutToL"]:
                         data["player_stats"][player.name]["cutToL"] = tracker["cutToL"]
@@ -122,9 +147,12 @@ def updateTrackerFile(tracker, players):
                     if player.name != tracker["roll_starter"] and data["player_stats"][player.name]["spooky_shillings"] < 2:
                         data["player_stats"][player.name]["spooky_shillings"] += 0
 
+                    # Update our consecutive wins value
+                    data["player_stats"][player.name]["consecutive_wins"] += 1
             # Now we need to go through every entry in our player stats to update some general stuff
             highest_wl = 0
             lowest_wl = 9999
+            highest_winstreak = 0
             most_cuts = 0
             most_crits = 0
             biggest_cut_to_L = 0
@@ -133,6 +161,9 @@ def updateTrackerFile(tracker, players):
             most_stalls = 0
             most_games = 0
             most_sds = 0
+            highest_stall = 0
+            most_gathered = 0
+            most_starts = 0
             # TODO: Do this in a better way...
             for entry in data["player_stats"]:
                 try:
@@ -147,11 +178,23 @@ def updateTrackerFile(tracker, players):
                 if ratio < lowest_wl:
                     lowest_wl = ratio
 
+                if data["player_stats"][entry]["consecutive_wins"]> highest_winstreak:
+                    highest_winstreak = data["player_stats"][entry]["consecutive_wins"]
+
                 if data["player_stats"][entry]["wins"] + data["player_stats"][entry]["losses"] > most_games:
                     most_games = data["player_stats"][entry]["wins"] + data["player_stats"][entry]["losses"]
 
                 if data["player_stats"][entry]["stalls"] > most_stalls:
                     most_stalls = data["player_stats"][entry]["stalls"]
+
+                if data["player_stats"][entry]["biggest_stall"] > highest_stall:
+                    highest_stall = data["player_stats"][entry]["biggest_stall"]
+
+                if data["player_stats"][entry]["most_gathered_players"] > most_gathered:
+                    most_gathered = data["player_stats"][entry]["most_gathered_players"]
+
+                if data["player_stats"][entry]["games_started"] > most_starts:
+                    most_starts = data["player_stats"][entry]["games_started"]
 
                 if data["player_stats"][entry]["cuts"] > most_cuts:
                     most_cuts = data["player_stats"][entry]["cuts"]
@@ -307,8 +350,51 @@ def updateTrackerFile(tracker, players):
                     except:
                         pass
 
+                # --- Peskiest --- #
+                if data["player_stats"][entry]["biggest_stall"] >= highest_stall:
+                    if "Peskiest" not in data["player_stats"][entry]["accolades"]:
+                        data["player_stats"][entry]["accolades"].append("Peskiest")
+                else:
+                    # Try to remove it if it no longer applies
+                    try:
+                        data["player_stats"][entry]["accolades"].remove("Peskiest")
+                    except:
+                        pass
+
+                # --- Survivor --- #
+                if data["player_stats"][entry]["consecutive_wins"] >= highest_winstreak:
+                    if "Survivor" not in data["player_stats"][entry]["accolades"]:
+                        data["player_stats"][entry]["accolades"].append("Survivor")
+                else:
+                    # Try to remove it if it no longer applies
+                    try:
+                        data["player_stats"][entry]["accolades"].remove("Survivor")
+                    except:
+                        pass
+
+                # --- Popular --- #
+                if data["player_stats"][entry]["most_gathered_players"] >= most_gathered:
+                    if "Popular" not in data["player_stats"][entry]["accolades"]:
+                        data["player_stats"][entry]["accolades"].append("Popular")
+                else:
+                    # Try to remove it if it no longer applies
+                    try:
+                        data["player_stats"][entry]["accolades"].remove("Popular")
+                    except:
+                        pass
+
+                # --- Party Starter --- #
+                if data["player_stats"][entry]["games_started"] >= most_starts:
+                    if "Party Starter" not in data["player_stats"][entry]["accolades"]:
+                        data["player_stats"][entry]["accolades"].append("Party Starter")
+                else:
+                    # Try to remove it if it no longer applies
+                    try:
+                        data["player_stats"][entry]["accolades"].remove("Party Starter")
+                    except:
+                        pass
                 # Finally, sort accolades to be alphabetical
-                # data["player_stats"][entry]["accolades"].sort() # NOT SURE IF I WANT TO DO THIS
+                # data["player_stats"][entry]["accolades"].sort() # NOT SURE IF I WANT TO DO THIS. Better to keep in order in which they were obtained
 
 
         
@@ -335,6 +421,7 @@ def pullStats(message, player = None):
     '''
     # Make note of who sent the message. We might want to pull stats for this person
     caller = message.author
+    #playerUser = caller
 
     # If we're not given a specific name to get stats for, assume the caller wants their own stats
     if player is None:
@@ -342,9 +429,12 @@ def pullStats(message, player = None):
     elif isinstance(player, list):
         # This is how we're gonna deal with instances where a person's name is coming as a list due to spaces
         player = " ".join(player)
+        player = player.lower()
 
     # Want to try and open a file if it's already there
     try:
+        playerUser = message.guild.get_member_named(player)
+
         with open('stat_tracker.json') as f:
             data = json.load(f)
 
@@ -355,16 +445,21 @@ def pullStats(message, player = None):
         # This is just a quick way to change the embed's side banner color
         #   Side banner will be blue if win / loss ratio is above 50%, and red otherwise
         if ratio >= 50:
-            embedVar = discord.Embed(color=0x0B5394, title = player)
+            # If player has the highest win / loss ratio, do a golden border (alt color code: d4ac0d)
+            if "Loss Averter" in data["player_stats"][player]["accolades"]:
+                embedVar = discord.Embed(color=0xFFD966, title = player)
+            else:
+                embedVar = discord.Embed(color=0x0B5394, title = player)
         else:
-            embedVar = discord.Embed(color=0xE74C3C , title = player)
-        #embedVar.set_author(name = player)
-        #embedVar.set_thumbnail(url= caller.default_avatar)
-        #embedVar.add_field(name= "\u200B", value = "\u200B", inline=False)
-        #embedVar.add_field(name= "\u200B", value = "\u200B", inline=False)
+             embedVar = discord.Embed(color=0xE74C3C , title = player)
+        if "Captain Cope" in data["player_stats"][player]["accolades"]:
+                embedVar = discord.Embed(color=0xAD2D61 , title = player)
+            
+        embedVar.set_thumbnail(url= playerUser.avatar)
         embedVar.add_field(name= "Wins: ", value = wins, inline=True)
         embedVar.add_field(name= "Losses: ", value = losses, inline=True)
         embedVar.add_field(name= "Win / Loss Ratio: ", value = str(ratio) + "%", inline=True)
+        embedVar.add_field(name= "Current Winstreak: ", value = data["player_stats"][player]["consecutive_wins"], inline=False)
         embedVar.add_field(name= "Force Adds Remaining: ", value = data["player_stats"][player]["spooky_shillings"], inline=False)
         embedVar.add_field(name= "Biggest Cut to Loss: ", value = data["player_stats"][player]["cutToL"], inline=False)
         embedVar.add_field(name= "Most Cuts in a Game: ", value = data["player_stats"][player]["most_cuts"], inline=True)
@@ -372,6 +467,7 @@ def pullStats(message, player = None):
         embedVar.add_field(name= "Most Critical Cuts in a Game: ", value = data["player_stats"][player]["most_crit_cuts"], inline=False)
         embedVar.add_field(name= "Total Critical Cuts: ", value = data["player_stats"][player]["crit_cuts"], inline=True)
         embedVar.add_field(name= "Total Stalls: ", value = data["player_stats"][player]["stalls"], inline=True)
+        embedVar.add_field(name= "Highest Stall: ", value = data["player_stats"][player]["biggest_stall"], inline=True)
         embedVar.set_footer(text = "Current Titles: " +  ', '.join(str(n) for n in data["player_stats"][player]["accolades"]))
 
         return embedVar
@@ -386,23 +482,36 @@ def displayTitles():
     # TODO: Maybe consider storing these in a dictionary somewhere so we can easily iterate through them
     #       instead of manually going 1 by 1
     embedVar = discord.Embed(color=0xd4ac0d, title = "Deathroll Titles")
-    embedVar.add_field(name= "Adrenaline Junkie: ", value = "Have the highest average critical cuts per game", inline=False)
-    embedVar.add_field(name= "Captain Cope: ", value = "Have the lowest win / loss ratio", inline=False)
-    embedVar.add_field(name= "Committed: ", value = "Have the most games played", inline=False)
-    embedVar.add_field(name= "Critically Minded: ", value = "Have the highest amount of critical cuts", inline=False)
-    embedVar.add_field(name= "Immovable Object: ", value = "Have the most stalls", inline=False)
+    embedVar.add_field(name= "Adrenaline Junkie: ", value = "Have the highest average critical cuts per game\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Adrenaline Junkie")), inline=False)
+    embedVar.add_field(name= "Captain Cope: ", value = "Have the lowest win / loss ratio\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Captain Cope")), inline=False)
+    embedVar.add_field(name= "Committed: ", value = "Have the most games played\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Committed")), inline=False)
+    embedVar.add_field(name= "Critically Minded: ", value = "Have the highest amount of critical cuts\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Critically Minded")), inline=False)
+    embedVar.add_field(name= "Immovable Object: ", value = "Have the most stalls\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Immovable Object")), inline=False)
     #embedVar.add_field(name= "Lonely: ", value = "Start the most deathroll games and have no one join", inline=False)
-    embedVar.add_field(name= "Loss Averter: ", value = "Have the highest win / loss ratio", inline=False)
-    #embedVar.add_field(name= "Party Starter: ", value = "Start the most deathroll games", inline=False)
-    #embedVar.add_field(name= "Peskiest: ", value = "Have the highest stall value", inline=False)
-    #embedVar.add_field(name= "Popular: ", value = "Get the most people to join a deathroll", inline=False)
-    embedVar.add_field(name= "Speed Runner: ", value = "Have the highest cut to loss", inline=False)
-    embedVar.add_field(name= "Sprinter: ", value = "Have the highest average cuts per game", inline=False)
-    embedVar.add_field(name= "Suicide Bomber: ", value = "Start and lose a bunch of games", inline=False)
-    #embedVar.add_field(name= "Survivor: ", value = "Avoid losing many games in a row", inline=False)
-    embedVar.add_field(name= "Top Cutter: ", value = "Have the highest amount of cuts", inline=False)
+    embedVar.add_field(name= "Loss Averter: ", value = "Have the highest win / loss ratio\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Loss Averter")), inline=False)
+    embedVar.add_field(name= "Party Starter: ", value = "Start the most deathroll games\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Party Starter")), inline=False)
+    embedVar.add_field(name= "Peskiest: ", value = "Have the highest stall value\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Peskiest")), inline=False)
+    embedVar.add_field(name= "Popular: ", value = "Start the deathroll with the most joiners\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Popular")), inline=False)
+    embedVar.add_field(name= "Speed Runner: ", value = "Have the highest cut to loss\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Speed Runner")), inline=False)
+    embedVar.add_field(name= "Sprinter: ", value = "Have the highest average cuts per game\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Sprinter")), inline=False)
+    embedVar.add_field(name= "Suicide Bomber: ", value = "Start lots of games only to lose them\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Suicide Bomber")), inline=False)
+    embedVar.add_field(name= "Survivor: ", value = "Avoid losing many games in a row\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Survivor")), inline=False)
+    embedVar.add_field(name= "Top Cutter: ", value = "Have the highest amount of cuts\nCurrent holders: " + ", ".join(str(n) for n in getCurrentTitleHolders("Top Cutter")), inline=False)
 
     return embedVar
+
+def getCurrentTitleHolders(title):
+    holders = []
+    try:
+        with open('stat_tracker.json') as f:
+            data = json.load(f)
+            for entry in data["player_stats"]:
+                if title in data["player_stats"][entry]["accolades"]:
+                    holders.append(entry)
+    except Exception as e:
+            print(e)
+    return holders
+
 
 def roll(num):
     return random.randint(1, int(num))
@@ -511,8 +620,16 @@ async def gatherPlayers(message, caller, callOuts = []):
     message = await message.channel.fetch_message(message.id)
     players = [caller] + callOuts
     reacts = message.reactions
+
+    # This variable will allow us to refend people their force adds if the person they force adds also reacts
+    refund_counter = 0
+
     for react in reacts:
         async for user in react.users():
+            # If the user was called out but also willingly joined by reacting, refund the force add
+            if user in callOuts:
+                refund_counter += 1
+
             # Don't want to include people twice. Also don't want the bot to be a player
             if user not in players and user.id != message.author.id:
                 players.append(user)
@@ -520,7 +637,7 @@ async def gatherPlayers(message, caller, callOuts = []):
     
     # Adding a random shuffling of players
     random.shuffle(players)
-    return players
+    return players, refund_counter
 
 def updatePlayerCallOuts(player, change):
     '''
@@ -581,7 +698,8 @@ async def gatherCallOuts(message):
             Returns:
                     players (list): A list of each Discord User that had reacted to the given message
     '''
-    return [x for x in message.mentions if x.bot == False] 
+    # Make sure we don't gather any bots. Also make sure someone cannot call themselves out
+    return [x for x in message.mentions if (x.bot == False) and (x != message.author)] 
 
 # Gets list of all emojis owned by server and returns one chosen at random
 async def getRandomEmoji(message):
@@ -595,8 +713,30 @@ async def getRandomEmoji(message):
                     emoji (???): A randomly chosen emoji from the server
     '''
     emojis = message.channel.guild.emojis
-    randInd = random.randint(1, int(len(emojis)-1))
+    # If our guild doesn't have any custom emojis, we'll default to using an exclamation point
+    try:
+        randInd = random.randint(1, int(len(emojis)-1))
+    except:
+        return "❗"
     return emojis[randInd]
+
+class gambaModal(discord.ui.Modal):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    name = discord.ui.TextInput(label='Wager')
+
+    #name = discord.ui.Select(options=[discord.SelectOption(label="A"), discord.SelectOption(label="B")])
+
+    async def on_submit(self, interaction: discord.Interaction):
+        owner = interaction.user
+        await interaction.response.send_message(f'User {owner} wagered {self.name} points!', ephemeral=False)
+
+class gambaView(discord.ui.View):
+    @discord.ui.button(label="Enter Wager", row=0, style=discord.ButtonStyle.green)
+    async def button_callback(self, interaction, button):
+        await interaction.response.send_modal(gambaModal(title="Gamba Modal"))
+
 
 ## Discord-side methods
 @client.event
@@ -644,6 +784,10 @@ async def on_message(message):
         elif "leaderboard" in message.content.lower():
             leaderboard = getLeaderboard()
             await message.channel.send(embed=leaderboard)
+
+        elif "garsquankus" in message.content.lower():
+            await message.channel.send("", view = gambaView())
+
         # Otherwise, assume it is a call for a deathroll game
         else:
             global gameOn
@@ -673,11 +817,11 @@ async def on_message(message):
                             await message.channel.send("You can't force add that many people! You only have " + str(possibleCallOuts) + " call outs!")
                         else:
                             await message.channel.send("You can't force add that many people! You have 0 call outs!")
-                        players = await gatherPlayers(game, caller)
+                        players, refund = await gatherPlayers(game, caller)
                     else:
                          # If they have ample funds, force add all of the callOuts
-                         players = await gatherPlayers(game, caller, callOuts)
-                         updatePlayerCallOuts(caller, len(callOuts))
+                         players, refund = await gatherPlayers(game, caller, callOuts)
+                         updatePlayerCallOuts(caller, len(callOuts) - refund)
                     if len(players) > 1:
                         tracker = setupStatTracking(players, limit, caller)
                         curPlayerInd = 0
@@ -690,9 +834,9 @@ async def on_message(message):
                             isCrit = False
                             isCut = False
                             isStall = False
-                            if limit < (oldLim * 0.05):
+                            if limit <= (oldLim * 0.05):
                                 isCrit = True
-                            if limit < (oldLim * 0.35):
+                            if limit <= (oldLim * 0.35):
                                 isCut = True
                             if limit == oldLim:
                                 isStall = True
@@ -708,12 +852,12 @@ async def on_message(message):
                             else:
                                 roundMessage = await message.channel.send(curPlayer.name + " rolled a " + f"{limit:,}" + "! 3 seconds until next roll!")
                                 # If we have a large cut this round, add the scissors emoji
-                                # Structured as if / elif so we only get the one reaction per message
+                                # Structure as if / elif if you only want to get one reaction per message
                                 if isCrit:
                                     await roundMessage.add_reaction("❗")
                                 elif isCut:
                                     await roundMessage.add_reaction("✂️")
-                                elif isStall:
+                                if isStall:
                                     await roundMessage.add_reaction("<:pesky:822660834534359102>")
 
                                 updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit)
