@@ -17,8 +17,10 @@ client = discord.Client(intents=intents)
 
 with open('botKey.txt') as f:
     botKey = f.readline()
-
+  
 gameOn = False
+
+teams = ["TEAM 1", "TEAM 2"]
 
 ## Bot methods
 def setupStatTracking(players, startLimit, caller):
@@ -95,7 +97,7 @@ def updateTrackerFile(tracker, players):
                 if player.name not in data["player_stats"].keys():
                     data["player_stats"][player.name] = {"wins": 0, "losses": 0, "self_destructs": 0, "biggest_cut": 0, "cutToL" : 0,
                      "most_cuts" : 0, "most_crit_cuts" : 0, "cuts" : 0, "crit_cuts" : 0, "stalls" : 0, "spooky_shillings": 2, "consecutive_wins": 0, 
-                      "biggest_stall": 0, "most_gathered_players": 0, "games_started": 0,  "accolades": []}
+                      "biggest_stall": 0, "most_gathered_players": 0, "games_started": 0, "team": "None", "accolades": []}
         
 
                 # --- CUT INFO --- #
@@ -618,7 +620,12 @@ async def gatherPlayers(message, caller, callOuts = []):
                     players (list): A list of each Discord User that had reacted to the given message
     '''
     message = await message.channel.fetch_message(message.id)
-    players = [caller] + callOuts
+
+    # Check to see if caller is not a bot (useful for daily rolls and reruns)
+    if caller.bot:
+        players = []
+    else:
+        players = [caller] + callOuts
     reacts = message.reactions
 
     # This variable will allow us to refend people their force adds if the person they force adds also reacts
@@ -649,23 +656,28 @@ def updatePlayerCallOuts(player, change):
     '''
     # Want to try and open a file if it's already there
     # NOTE: with clause auto closes the file, so no need to call f.close()
-    try:
-        with open('stat_tracker.json') as f:
-            data = json.load(f)
-
-        data["player_stats"][player.name]["spooky_shillings"] -= change
     
-    except:
-        print("Error opening stats file in callouts p1!")
-    
-    try:
-        #Now write to file
-        with open('stat_tracker.json', 'w') as f:
-            json_string = json.dumps(data)
-            f.write(json_string)
+    # If we're dealing with a bot, just move on
+    if player.bot:
+        pass
+    else:
+        try:
+            with open('stat_tracker.json') as f:
+                data = json.load(f)
 
-    except:
-        print("Error opening stats file in callouts p2!")
+            data["player_stats"][player.name]["spooky_shillings"] -= change
+        
+        except:
+            print("Error opening stats file in callouts p1!")
+        
+        try:
+            #Now write to file
+            with open('stat_tracker.json', 'w') as f:
+                json_string = json.dumps(data)
+                f.write(json_string)
+
+        except:
+            print("Error opening stats file in callouts p2!")
 
 def playerCallOutCount(caller):
     '''
@@ -677,16 +689,20 @@ def playerCallOutCount(caller):
             Returns:
                     (int): Total player funds, or 0 if player stats not initialized
     '''
-    # Want to try and open a file if it's already there
-    # NOTE: with clause auto closes the file, so no need to call f.close()
-    try:
-        with open('stat_tracker.json') as f:
-            data = json.load(f)
 
-        return data["player_stats"][caller.name]["spooky_shillings"]
-    except:
-        print("Error accessing player stats! Returning 0...")
+    if caller.bot:
         return 0
+    else:
+        # Want to try and open a file if it's already there
+        # NOTE: with clause auto closes the file, so no need to call f.close()
+        try:
+            with open('stat_tracker.json') as f:
+                data = json.load(f)
+
+            return data["player_stats"][caller.name]["spooky_shillings"]
+        except:
+            print("Error accessing player stats! Returning 0...")
+            return 0
 
 async def gatherCallOuts(message):
     '''
@@ -720,6 +736,100 @@ async def getRandomEmoji(message):
         return "❗"
     return emojis[randInd]
 
+async def runGame(message, limit, wasRandom, startDelay, genFail, caller, isReRun = False):
+    global gameOn
+
+    # Store away our starting limit for use in reruns
+    startLim = limit
+
+    if not isReRun:
+        game = await message.channel.send('Game starts in ' + str(startDelay) + ' seconds! React to this message to join the deathroll!')
+        if genFail:
+            await message.channel.send('Could not read sent in start value! Generating random start instead...')
+        if wasRandom:
+            await message.channel.send('Randomly generated start was ' + str(limit))
+        await game.add_reaction(await getRandomEmoji(game))
+    else:
+        game = message
+        gameOn = True
+        if wasRandom:
+            await message.channel.send('Randomly generated start was ' + str(limit))
+
+    callOuts = await gatherCallOuts(message)
+    possibleCallOuts = playerCallOutCount(caller)
+    time.sleep(startDelay)
+    # If the deathroll caller is trying to force add people, see if they have the funds to
+    if len(callOuts) > possibleCallOuts:
+        # If they're trying to force more than they have funds to, only look at message reactions
+        if possibleCallOuts > 0:
+            await message.channel.send("You can't force add that many people! You only have " + str(possibleCallOuts) + " call outs!")
+        else:
+            await message.channel.send("You can't force add that many people! You have 0 call outs!")
+        players, refund = await gatherPlayers(game, caller)
+    else:
+            # If they have ample funds, force add all of the callOuts
+            players, refund = await gatherPlayers(game, caller, callOuts)
+            updatePlayerCallOuts(caller, len(callOuts) - refund)
+    print("PLAYERS")
+    print(players)
+    if len(players) > 1:
+        tracker = setupStatTracking(players, limit, caller)
+        curPlayerInd = 0
+        nRounds = 0
+        while(gameOn):
+            curPlayer = players[curPlayerInd]
+            oldLim = limit
+            limit = roll(limit)
+            nRounds += 1
+            isCrit = False
+            isCut = False
+            isStall = False
+            if limit <= (oldLim * 0.05):
+                isCrit = True
+            if limit <= (oldLim * 0.35):
+                isCut = True
+            if limit == oldLim:
+                isStall = True
+            if(limit == 1):
+                if nRounds == 1:
+                    endMess = await message.channel.send(curPlayer.name + " rolled a " + str(limit) + " and lost after " + str(nRounds) + " round!")
+                else:
+                    endMess = await message.channel.send(curPlayer.name + " rolled a " + str(limit) + " and lost after " + str(nRounds) + " rounds!")
+                gameOn = False
+                # Update stat tracker
+                updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit, fin = True)
+                await endMess.add_reaction("🇱")
+            else:
+                roundMessage = await message.channel.send(curPlayer.name + " rolled a " + f"{limit:,}" + "!   **|**   3 seconds until next roll!")
+                # If we have a large cut this round, add the scissors emoji
+                # Structure as if / elif if you only want to get one reaction per message
+                if isCrit:
+                    await roundMessage.add_reaction("❗")
+                elif isCut:
+                    await roundMessage.add_reaction("✂️")
+                elif isStall:
+                    await roundMessage.add_reaction("<:pesky:822660834534359102>")
+
+                updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit)
+                curPlayerInd = (curPlayerInd + 1)%len(players)
+                time.sleep(3)
+        if len(players) > 1:
+            updateTrackerFile(tracker, players)
+
+        # TODO: Figure out how to do reruns
+        # See if anyone wants to run it back (rerun the match)
+        rerun = await message.channel.send('React to this message within ' + str(startDelay) + ' seconds to rerun the deathroll')
+        await rerun.add_reaction(await getRandomEmoji(game))
+
+        # Check to see if we had a given limit before. It so, use that. If last input was random, we want to generate a new random #, not use the same value
+        if wasRandom:
+            await runGame(rerun, random.randint(1, 1000000), wasRandom, startDelay, genFail, rerun.author, isReRun = True)
+        else:
+            await runGame(rerun, startLim, wasRandom, startDelay, genFail, rerun.author, isReRun = True)
+    else:
+        await message.channel.send("Starting a game requires more than 1 player!")
+        gameOn = False
+
 class gambaModal(discord.ui.Modal):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -736,6 +846,21 @@ class gambaView(discord.ui.View):
     @discord.ui.button(label="Enter Wager", row=0, style=discord.ButtonStyle.green)
     async def button_callback(self, interaction, button):
         await interaction.response.send_modal(gambaModal(title="Gamba Modal"))
+
+
+#### SEASONAL AND DAILY STUFF ####
+
+# Message for when a new season starts
+def newSeasonMessage():
+    pass
+
+# Assigning players to teams
+def assignTeams():
+    pass
+
+# Daily deathroll
+def dailyDeathroll():
+    pass
 
 
 ## Discord-side methods
@@ -760,13 +885,18 @@ async def on_message(message):
         #           Above will just do stats instead of all 3
         # If stats is called for, display the stored stats (if any) for the person calling the method
         if "stats" in message.content.lower():
-            params = message.content.split()
-            # NOTE: Some people have names with spaces. We'll need to do some magic to get around this
-            if len(params) > 2:
-                stats = pullStats(message, params[2:])
+            # If they ask for a team's stats, display them
+            if "team" in message.content.lower():
+                pass
+            # Otherwise, assume they are asking for a player's stats
             else:
-                stats = pullStats(message)
-            await message.channel.send(embed=stats)
+                params = message.content.split()
+                # NOTE: Some people have names with spaces. We'll need to do some magic to get around this
+                if len(params) > 2:
+                    stats = pullStats(message, params[2:])
+                else:
+                    stats = pullStats(message)
+                await message.channel.send(embed=stats)
 
         # If titles is called for, display an embed that shows all possible titles and their descriptions
         elif "titles" in message.content.lower():
@@ -786,7 +916,9 @@ async def on_message(message):
             await message.channel.send(embed=leaderboard)
 
         elif "garsquankus" in message.content.lower():
-            await message.channel.send("", view = gambaView())
+            #await message.channel.send("", view = gambaView())
+            #await message.channel.send("<USER> rolled a <NUMBER>!   **|**   3 seconds until next roll!")
+            pass
 
         # Otherwise, assume it is a call for a deathroll game
         else:
@@ -799,74 +931,7 @@ async def on_message(message):
                     limit, wasRandom, startDelay, genFail = getParams(message)
                     caller = message.author
 
-                    game = await message.channel.send('Game starts in ' + str(startDelay) + ' seconds! React to this message to join the deathroll!')
-                    if genFail:
-                        await message.channel.send('Could not read sent in start value! Generating random start instead...')
-                    if wasRandom:
-                        await message.channel.send('Randomly generated start was ' + str(limit))
-                    #await game.add_reaction("<:pesky:822660834534359102>")
-                    # NOTE: Below fails on emoji-less servers
-                    await game.add_reaction(await getRandomEmoji(game))
-                    callOuts = await gatherCallOuts(message)
-                    possibleCallOuts = playerCallOutCount(caller)
-                    time.sleep(startDelay)
-                    # If the deathroll caller is trying to force add people, see if they have the funds to
-                    if len(callOuts) > possibleCallOuts:
-                        # If they're trying to force more than they have funds to, only look at message reactions
-                        if possibleCallOuts > 0:
-                            await message.channel.send("You can't force add that many people! You only have " + str(possibleCallOuts) + " call outs!")
-                        else:
-                            await message.channel.send("You can't force add that many people! You have 0 call outs!")
-                        players, refund = await gatherPlayers(game, caller)
-                    else:
-                         # If they have ample funds, force add all of the callOuts
-                         players, refund = await gatherPlayers(game, caller, callOuts)
-                         updatePlayerCallOuts(caller, len(callOuts) - refund)
-                    if len(players) > 1:
-                        tracker = setupStatTracking(players, limit, caller)
-                        curPlayerInd = 0
-                        nRounds = 0
-                        while(gameOn):
-                            curPlayer = players[curPlayerInd]
-                            oldLim = limit
-                            limit = roll(limit)
-                            nRounds += 1
-                            isCrit = False
-                            isCut = False
-                            isStall = False
-                            if limit <= (oldLim * 0.05):
-                                isCrit = True
-                            if limit <= (oldLim * 0.35):
-                                isCut = True
-                            if limit == oldLim:
-                                isStall = True
-                            if(limit == 1):
-                                if nRounds == 1:
-                                    endMess = await message.channel.send(curPlayer.name + " rolled a " + str(limit) + " and lost after " + str(nRounds) + " round!")
-                                else:
-                                    endMess = await message.channel.send(curPlayer.name + " rolled a " + str(limit) + " and lost after " + str(nRounds) + " rounds!")
-                                gameOn = False
-                                # Update stat tracker
-                                updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit, fin = True)
-                                await endMess.add_reaction("🇱")
-                            else:
-                                roundMessage = await message.channel.send(curPlayer.name + " rolled a " + f"{limit:,}" + "! 3 seconds until next roll!")
-                                # If we have a large cut this round, add the scissors emoji
-                                # Structure as if / elif if you only want to get one reaction per message
-                                if isCrit:
-                                    await roundMessage.add_reaction("❗")
-                                elif isCut:
-                                    await roundMessage.add_reaction("✂️")
-                                if isStall:
-                                    await roundMessage.add_reaction("<:pesky:822660834534359102>")
-
-                                updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit)
-                                curPlayerInd = (curPlayerInd + 1)%len(players)
-                                time.sleep(3)
-                        updateTrackerFile(tracker, players)
-                    else:
-                        await message.channel.send("Starting a game requires more than 1 player!")
-                        gameOn = False
+                    await runGame(message, limit, wasRandom, startDelay, genFail, caller)
                 except Exception as e:
                     gameOn = False
                     print(e)
