@@ -97,7 +97,7 @@ def updateTrackerFile(tracker, players):
                 if player.name not in data["player_stats"].keys():
                     data["player_stats"][player.name] = {"wins": 0, "losses": 0, "self_destructs": 0, "biggest_cut": 0, "cutToL" : 0,
                      "most_cuts" : 0, "most_crit_cuts" : 0, "cuts" : 0, "crit_cuts" : 0, "stalls" : 0, "spooky_shillings": 2, "consecutive_wins": 0, 
-                      "biggest_stall": 0, "most_gathered_players": 0, "games_started": 0, "team": "None", "accolades": []}
+                      "biggest_stall": 0, "most_gathered_players": 0, "games_started": 0, "team": "None", "leaderboardPos": -1, "accolades": []}
         
 
                 # --- CUT INFO --- #
@@ -166,10 +166,13 @@ def updateTrackerFile(tracker, players):
             highest_stall = 0
             most_gathered = 0
             most_starts = 0
+
+            wlRank = []
             # TODO: Do this in a better way...
             for entry in data["player_stats"]:
                 try:
                     ratio = data["player_stats"][entry]["wins"] / (data["player_stats"][entry]["wins"] + data["player_stats"][entry]["losses"])
+                    wlRank.append((entry, ratio))
                 except:
                     continue
                 # Check for best win / loss
@@ -223,6 +226,18 @@ def updateTrackerFile(tracker, players):
             data["general"]["best_wl_ratio"] = highest_wl
             data["general"]["top_crits"] = most_crits
             data["general"]["top_cutter"] = most_cuts
+
+
+
+            # Sort our gathered win / loss information from highest to lowest
+            wlRank = sorted(wlRank, key=lambda tup: tup[1], reverse=True)
+            
+            # Now we can assign leaderboard positions
+            # TODO: Clean this up, this is pretty sloppy
+            i = 1
+            for entry in wlRank:
+                data["player_stats"][entry]["leaderboardPos"] = i
+                i+=1
 
             # Now we can assign titles
             # TODO: The general way to update these are the same, see if you can wrap it up into a loop / function call instead of a manual thing...
@@ -444,18 +459,20 @@ def pullStats(message, player = None):
         losses = data["player_stats"][player]["losses"]
         ratio = round((wins / (wins + losses)) * 100, 2)
 
+        leaderboardPos = data["player_stats"][player]["leaderboardPos"]
+
         # This is just a quick way to change the embed's side banner color
         #   Side banner will be blue if win / loss ratio is above 50%, and red otherwise
         if ratio >= 50:
             # If player has the highest win / loss ratio, do a golden border (alt color code: d4ac0d)
             if "Loss Averter" in data["player_stats"][player]["accolades"]:
-                embedVar = discord.Embed(color=0xFFD966, title = player)
+                embedVar = discord.Embed(color=0xFFD966, title = player, description= "Leaderboard Position: " + str(leaderboardPos))
             else:
-                embedVar = discord.Embed(color=0x0B5394, title = player)
+                embedVar = discord.Embed(color=0x0B5394, title = player, description= "Leaderboard Position: " + str(leaderboardPos))
         else:
-             embedVar = discord.Embed(color=0xE74C3C , title = player)
+             embedVar = discord.Embed(color=0xE74C3C , title = player, description= "Leaderboard Position: " + str(leaderboardPos))
         if "Captain Cope" in data["player_stats"][player]["accolades"]:
-                embedVar = discord.Embed(color=0xAD2D61 , title = player)
+                embedVar = discord.Embed(color=0xAD2D61 , title = player, description= "Leaderboard Position: " + str(leaderboardPos))
             
         embedVar.set_thumbnail(url= playerUser.avatar)
         embedVar.add_field(name= "Wins: ", value = wins, inline=True)
@@ -518,7 +535,7 @@ def getCurrentTitleHolders(title):
 def roll(num):
     return random.randint(1, int(num))
 
-def getLeaderboard():
+def getLeaderboard(newVers = False):
     '''
     Read our stat tracking file to create a leaderboard embed that the bot can later send
 
@@ -548,12 +565,19 @@ def getLeaderboard():
     # Sort our gathered information by the win/loss ratio
     info = sorted(info, key=lambda tup: tup[1], reverse=True)
 
-    embedVar = discord.Embed(color=0xd4ac0d, title = "Deathroll Leaderboard")
-    for entry in info:
-        #embedVar.add_field(name= str(entry[0]), value = str(entry[1]) + '% Titles: '.join(str(n) for n in entry[2]), inline=False)
-        embedVar.add_field(name= str(entry[0]), value = str(entry[1]) + '%', inline=False)
 
-        #"Current Titles: " +  '   '.join(str(n) for n in data["player_stats"][caller.name]["accolades"]
+    if newVers:
+        embedVar = discord.Embed(color=0xd4ac0d, title = "Deathroll Leaderboard")
+        for entry in info[0:10]:
+            embedVar.add_field(name= str(entry[0]), value = str(entry[1]) + '%', inline=False)
+
+            #TODO: Add two buttons to the bottom of the embed:
+            #       1) <-- : Show the previous 10 members on the leaderboard
+            #       2) --> : Show the next 10 members on the leaderboard
+    else:
+        embedVar = discord.Embed(color=0xd4ac0d, title = "Deathroll Leaderboard")
+        for entry in info:
+            embedVar.add_field(name= str(entry[0]), value = str(entry[1]) + '%', inline=False)
 
     return embedVar
 
@@ -813,6 +837,7 @@ async def runGame(message, limit, wasRandom, startDelay, genFail, caller, isReRu
                 updateTracker(tracker, curPlayer, oldLim, limit, nRounds, isCut, isCrit)
                 curPlayerInd = (curPlayerInd + 1)%len(players)
                 time.sleep(3)
+        # Below if is for debugging with 1 player
         if len(players) > 1:
             updateTrackerFile(tracker, players)
 
@@ -916,9 +941,8 @@ async def on_message(message):
             await message.channel.send(embed=leaderboard)
 
         elif "garsquankus" in message.content.lower():
-            #await message.channel.send("", view = gambaView())
-            #await message.channel.send("<USER> rolled a <NUMBER>!   **|**   3 seconds until next roll!")
-            pass
+            leaderboard = getLeaderboard(newVers=True)
+            await message.channel.send(embed=leaderboard)
 
         # Otherwise, assume it is a call for a deathroll game
         else:
