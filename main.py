@@ -236,7 +236,7 @@ def updateTrackerFile(tracker, players):
             # TODO: Clean this up, this is pretty sloppy
             i = 1
             for entry in wlRank:
-                data["player_stats"][entry]["leaderboardPos"] = i
+                data["player_stats"][entry[0]]["leaderboardPos"] = i
                 i+=1
 
             # Now we can assign titles
