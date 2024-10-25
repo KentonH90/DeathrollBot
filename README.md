@@ -22,5 +22,7 @@ After adding the bot to a server, you'll be able to use the following commands:
 --- Contributors ---
   
 Me (swebb2997)
+
+edit
   
 xForbes
